@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,3 +33,18 @@ jobs:
           name: ac-remote-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      # Publish the APK as a release so it has a direct download link:
+      # https://github.com/<owner>/<repo>/releases/download/latest-apk/AC-Remote.apk
+      - name: Publish APK to "latest-apk" release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk AC-Remote.apk
+          gh release delete latest-apk --cleanup-tag --yes || true
+          gh release create latest-apk AC-Remote.apk \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "AC Remote (latest build)" \
+            --notes "Debug APK built from ${GITHUB_SHA::7} on ${GITHUB_REF_NAME}. Download AC-Remote.apk below and open it on your phone to install."

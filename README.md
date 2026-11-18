@@ -21,12 +21,13 @@ conditioners over the internet, using the same Blue Star cloud as the official
 
 ## Get the APK
 
-Every push builds a debug APK on GitHub Actions:
+**Direct download (latest build):**
+https://github.com/VaitheesEswar/Claude-ai/releases/download/latest-apk/AC-Remote.apk
 
-1. Open the repository's **Actions** tab → latest **Build APK** run.
-2. Download the **ac-remote-debug-apk** artifact (a zip containing `app-debug.apk`).
-3. Copy it to your phone and install it (allow "Install unknown apps" for your
-   file manager/browser when asked). Android 8.0 or newer.
+Open that link on your phone (logged in to GitHub if the repo is private), then tap the
+downloaded `AC-Remote.apk` to install. Allow "Install unknown apps" for your browser when
+asked. Needs Android 8.0 or newer. Every push rebuilds it and refreshes the
+**latest-apk** release on the repo's Releases page.
 
 ### Build it yourself
 
