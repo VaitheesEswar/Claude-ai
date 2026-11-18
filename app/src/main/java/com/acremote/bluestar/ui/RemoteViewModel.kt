@@ -8,11 +8,15 @@ import com.acremote.bluestar.core.AcDevice
 import com.acremote.bluestar.core.AcMode
 import com.acremote.bluestar.core.AcState
 import com.acremote.bluestar.core.FanSpeed
+import com.acremote.bluestar.core.Redact
 import com.acremote.bluestar.core.Swing
 import com.acremote.bluestar.data.ApiException
 import com.acremote.bluestar.data.BlueStarClient
 import com.acremote.bluestar.data.CredentialStore
 import com.acremote.bluestar.data.SavedLogin
+import com.acremote.bluestar.data.toMap
+import com.acremote.bluestar.BuildConfig
+import org.json.JSONObject
 import com.acremote.bluestar.data.Session
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -163,7 +167,6 @@ class RemoteViewModel(app: Application) : AndroidViewModel(app) {
     /** Updates the display at once but waits for taps to settle before sending. */
     fun changeTemperature(delta: Int) {
         val device = readyState()?.selected ?: return
-        if (!device.state.connected) return
         val cmd = AcCommands.setTemperature(device.state, device.state.targetTemp + delta)
         applyLocally(device.id, cmd.expected, extraHoldMs = TEMP_DEBOUNCE_MS)
         tempJob?.cancel()
@@ -174,11 +177,9 @@ class RemoteViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun send(build: (AcState) -> AcCommands.Command) {
+        // Don't block on the cloud's "connected" flag: it can be stale while the AC is
+        // reachable, and the shadow delivers the command as soon as the AC is online.
         val device = readyState()?.selected ?: return
-        if (!device.state.connected) {
-            _messages.trySend("${device.name} is offline")
-            return
-        }
         val cmd = build(device.state)
         applyLocally(device.id, cmd.expected)
         viewModelScope.launch { dispatch(device.id, cmd.desired) }
@@ -204,6 +205,48 @@ class RemoteViewModel(app: Application) : AndroidViewModel(app) {
             ready.copy(devices = ready.devices.map { if (it.id == deviceId) it.copy(state = expected) else it })
         }
     }
+
+    // ---- Diagnostics --------------------------------------------------------
+
+    /** What the Blue Star cloud and AWS return, with secrets and personal details masked. */
+    suspend fun diagnosticsReport(): String {
+        val sb = StringBuilder()
+        sb.appendLine("AC Remote ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+        sb.appendLine("Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
+        session?.iot?.let { sb.appendLine("IoT region: ${it.region}") }
+        sb.appendLine()
+        val thingIds = mutableListOf<String>()
+        sb.appendLine("== GET /things ==")
+        try {
+            val raw = withSession { client.fetchThingsRaw(it) }
+            val obj = JSONObject(raw)
+            obj.optJSONArray("things")?.let { arr ->
+                for (i in 0 until arr.length()) arr.optJSONObject(i)?.optString("thing_id")?.takeIf { it.isNotBlank() }?.let(thingIds::add)
+            }
+            sb.appendLine(pretty(obj.toMap()))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            sb.appendLine("ERROR: ${e.javaClass.simpleName}: ${e.message}")
+        }
+        if (thingIds.isEmpty()) readyState()?.devices?.mapTo(thingIds) { it.id }
+        for (id in thingIds.distinct()) {
+            sb.appendLine()
+            sb.appendLine("== Shadow of $id ==")
+            try {
+                val raw = withSession { client.getShadowRaw(it, id) }
+                sb.appendLine(pretty(JSONObject(raw).toMap()))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                sb.appendLine("ERROR: ${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun pretty(map: Map<String, Any?>): String =
+        (Redact.tree(map) as? Map<*, *>)?.let { JSONObject(it).toString(2) } ?: "{}"
 
     // ---- Helpers ------------------------------------------------------------
 

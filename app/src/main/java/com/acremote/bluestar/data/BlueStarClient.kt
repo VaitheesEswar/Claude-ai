@@ -44,18 +44,81 @@ class BlueStarClient {
     }
 
     fun fetchDevices(session: Session, previous: Map<String, AcState> = emptyMap()): List<AcDevice> {
-        val res = JSONObject(request("GET", "$API_BASE/things", null, appHeaders(session.token)))
-        val things = res.optJSONArray("things") ?: JSONArray()
-        val states = res.optJSONObject("states") ?: JSONObject()
+        val things = parseThings(fetchThingsRaw(session))
+        return things.map { t ->
+            var state = AcState.fromReported(t.reported, t.connected ?: true, previous[t.id] ?: AcState())
+            // The AC's own cloud record (AWS IoT shadow) is the most direct source of its state.
+            val shadowReported = runCatching { shadowReported(getShadowRaw(session, t.id)) }.getOrNull()
+            if (!shadowReported.isNullOrEmpty()) {
+                state = AcState.fromReported(shadowReported, state.connected, state)
+            }
+            AcDevice(t.id, t.name, state)
+        }
+    }
+
+    /** Raw body of GET /things (for parsing and the Diagnostics screen). */
+    fun fetchThingsRaw(session: Session): String =
+        request("GET", "$API_BASE/things", null, appHeaders(session.token))
+
+    /** Raw AWS IoT shadow document of one AC. */
+    fun getShadowRaw(session: Session, thingId: String): String {
+        val iot = session.iot
+        val url = "https://${iot.endpoint}/things/${SigV4.uriEncode(thingId)}/shadow"
+        val headers = SigV4.sign(
+            method = "GET",
+            uri = URI(url),
+            body = ByteArray(0),
+            region = iot.region,
+            service = "iotdata",
+            accessKey = iot.accessKey,
+            secretKey = iot.secretKey,
+        )
+        return request("GET", url, null, headers)
+    }
+
+    private class ThingInfo(val id: String, val name: String, val reported: Map<String, Any?>, val connected: Boolean?)
+
+    /** Tolerates the few shapes the /things response has been seen in. */
+    private fun parseThings(raw: String): List<ThingInfo> {
+        val res = JSONObject(raw)
+        val things = res.optJSONArray("things") ?: res.optJSONArray("data") ?: JSONArray()
+        val statesObj = res.optJSONObject("states")
+        val statesArr = res.optJSONArray("states")
         return (0 until things.length()).mapNotNull { i ->
             val thing = things.optJSONObject(i) ?: return@mapNotNull null
-            val id = thing.optString("thing_id").ifBlank { return@mapNotNull null }
-            val st = states.optJSONObject(id) ?: JSONObject()
-            val reported = st.optJSONObject("reported")?.toMap() ?: emptyMap()
-            val state = AcState.fromReported(reported, st.optBoolean("connected", true), previous[id] ?: AcState())
-            val name = thing.optString("name").trim().ifBlank { "AC ${id.takeLast(4)}" }
-            AcDevice(id, name, state)
+            val id = firstString(thing, "thing_id", "thingId", "udid", "id") ?: return@mapNotNull null
+            val st: JSONObject = statesObj?.optJSONObject(id)
+                ?: statesArr?.let { arr ->
+                    (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                        .firstOrNull { firstString(it, "thing_id", "thingId", "udid", "id") == id }
+                }
+                ?: thing.optJSONObject("state")
+                ?: JSONObject()
+            val reportedObj = st.optJSONObject("reported")
+                ?: st.optJSONObject("state")?.optJSONObject("reported")
+                ?: thing.optJSONObject("reported")
+                ?: st.takeIf { it.has("pow") || it.has("stemp") }
+            val connected = asBool(st.opt("connected"))
+                ?: asBool(st.optJSONObject("state")?.opt("connected"))
+                ?: asBool(thing.opt("connected"))
+                ?: asBool(thing.opt("online"))
+            val name = firstString(thing, "name", "nickname", "nick_name", "device_name", "thing_name", "alias", "room")
+                ?: "AC ${id.takeLast(4)}"
+            ThingInfo(id, name, reportedObj?.toMap() ?: emptyMap(), connected)
         }
+    }
+
+    private fun shadowReported(raw: String): Map<String, Any?> =
+        JSONObject(raw).optJSONObject("state")?.optJSONObject("reported")?.toMap() ?: emptyMap()
+
+    private fun firstString(o: JSONObject, vararg keys: String): String? =
+        keys.firstNotNullOfOrNull { k -> o.opt(k)?.takeIf { it != JSONObject.NULL }?.toString()?.trim()?.ifBlank { null } }
+
+    private fun asBool(v: Any?): Boolean? = when (v) {
+        is Boolean -> v
+        is Number -> v.toInt() != 0
+        is String -> when (v.lowercase()) { "true", "1", "online", "connected" -> true; "false", "0", "offline", "disconnected" -> false; else -> null }
+        else -> null
     }
 
     /** Writes `{"state":{"desired":...}}` to the device shadow; the AC picks it up from there. */
@@ -125,7 +188,7 @@ class BlueStarClient {
     }
 }
 
-private fun JSONObject.toMap(): Map<String, Any?> =
+internal fun JSONObject.toMap(): Map<String, Any?> =
     keys().asSequence().associateWith { key -> opt(key).unwrap() }
 
 private fun Any?.unwrap(): Any? = when (this) {

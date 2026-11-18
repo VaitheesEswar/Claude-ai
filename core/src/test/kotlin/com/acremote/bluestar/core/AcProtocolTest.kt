@@ -98,3 +98,22 @@ class AcErrorsTest {
         assertEquals("#99", AcErrors.label(99))
     }
 }
+
+class RedactTest {
+    @Test
+    fun masksSecretsKeepsState() {
+        val out = Redact.tree(
+            mapOf(
+                "session" to "abc", "mi" to "xyz", "user" to mapOf("email" to "a@b.c", "name" to "V"),
+                "things" to listOf(mapOf("thing_id" to "T1", "reported" to mapOf("pow" to 1))),
+            )
+        )
+        assertEquals(
+            mapOf(
+                "session" to "***", "mi" to "***", "user" to mapOf("email" to "***", "name" to "V"),
+                "things" to listOf(mapOf("thing_id" to "T1", "reported" to mapOf("pow" to 1))),
+            ),
+            out,
+        )
+    }
+}

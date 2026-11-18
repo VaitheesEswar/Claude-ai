@@ -92,6 +92,11 @@ fun RemoteScreen(state: UiState.Ready, vm: RemoteViewModel) {
     }
 
     var menuOpen by remember { mutableStateOf(false) }
+    var showDiagnostics by remember { mutableStateOf(false) }
+    if (showDiagnostics) {
+        DiagnosticsScreen(vm, onBack = { showDiagnostics = false })
+        return
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -105,6 +110,10 @@ fun RemoteScreen(state: UiState.Ready, vm: RemoteViewModel) {
                             Icon(Icons.Filled.MoreVert, contentDescription = "More")
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Diagnostics") },
+                                onClick = { menuOpen = false; showDiagnostics = true },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Sign out (${state.userName})") },
                                 onClick = { menuOpen = false; vm.signOut() },
@@ -167,8 +176,8 @@ private fun NoDevices(modifier: Modifier) {
 @Composable
 private fun Controls(state: UiState.Ready, device: AcDevice, vm: RemoteViewModel, modifier: Modifier) {
     val ac = device.state
-    val online = ac.connected
-    val active = online && ac.power
+    // The cloud's "connected" flag can be wrong, so it never disables the controls.
+    val active = ac.power
 
     Column(
         modifier
@@ -179,7 +188,9 @@ private fun Controls(state: UiState.Ready, device: AcDevice, vm: RemoteViewModel
     ) {
         if (state.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.cloudError?.let { Banner(it) }
-        if (!online) Banner("${device.name} is offline. Check that the AC is plugged in and on Wi-Fi.")
+        if (!ac.connected) {
+            Banner("Blue Star's cloud says ${device.name} is offline. You can still try the controls; if nothing happens, check the AC's Wi-Fi.")
+        }
         AcErrors.label(ac.errorCode)?.let { Banner("The AC reports fault code $it") }
 
         StatusLine(ac)
@@ -187,7 +198,6 @@ private fun Controls(state: UiState.Ready, device: AcDevice, vm: RemoteViewModel
 
         Button(
             onClick = vm::togglePower,
-            enabled = online,
             modifier = Modifier.fillMaxWidth().height(60.dp),
             colors = if (ac.power) {
                 ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -254,7 +264,7 @@ private fun Controls(state: UiState.Ready, device: AcDevice, vm: RemoteViewModel
 private fun StatusLine(ac: AcState) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
-            if (ac.connected) "● Online" else "● Offline",
+            if (ac.connected) "● Online" else "● Cloud says offline",
             color = if (ac.connected) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.labelLarge,
         )
