@@ -12,12 +12,28 @@ android {
         applicationId = "com.acremote.bluestar"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
+    }
+
+    // One fixed key for every build, so updates install over the previous version.
+    // It only protects this personal app; it is not a Play Store upload key.
+    signingConfigs {
+        create("shared") {
+            storeFile = file("signing/acremote.p12")
+            storePassword = "acremote"
+            keyAlias = "acremote"
+            keyPassword = "acremote"
+            storeType = "PKCS12"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("shared")
+        }
         release {
+            signingConfig = signingConfigs.getByName("shared")
             isMinifyEnabled = false
         }
     }

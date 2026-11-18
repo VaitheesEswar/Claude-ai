@@ -10,6 +10,11 @@ conditioners over the internet, using the same Blue Star cloud as the official
 
 ## Features
 
+The main screen looks like a real AC remote: an LCD-style display (mode, set temperature,
+fan level, swing, room temperature, Wi-Fi status) and round buttons for **Power**, **Mode**,
+**Fan**, **Swing** and **Temp ▲/▼**. The colours follow the mode (blue Cool, teal Dry,
+green Fan, purple Auto).
+
 - Sign in with your Blue Star Smart account (mobile number or email)
 - Power on/off
 - Mode: Cool, Dry, Fan, Auto
@@ -69,6 +74,12 @@ App ──HTTPS (AWS SigV4)──▶ AWS IoT Core       POST /things/{id}/shadow
 Command fields (from the firmware): `pow` (0/1), `mode` {value 0 fan, 2 cool, 3 dry, 4 auto},
 `stemp` ("24.0"), `fspd` (2 low, 3 med, 4 high, 6 turbo, 7 auto), `vswing` (6 off, 0 swing,
 1–5 angles), plus `lcmd` (the field changed), `src` and `ts`.
+
+## Signing
+
+All builds are signed with one fixed key (`app/signing/acremote.p12`), so a new APK installs
+over the old one and keeps your login. The key is only for this personal app: anyone with
+access to the repo could sign an APK as it, so don't reuse it for apps you publish.
 
 ## Privacy & security
 
