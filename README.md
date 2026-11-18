@@ -20,7 +20,10 @@ green Fan, purple Auto).
 - Mode: Cool, Dry, Fan, Auto
 - Set temperature 16–30 °C (1 °C steps)
 - Fan speed: Auto, Low, Medium, High, Turbo (fixed automatically in Dry/Auto, as the AC requires)
-- Vertical swing: Off, Swing, or fixed angle 1–5
+- Vertical swing: Off, Swing, or fixed angle 1–5; horizontal (left-right) swing on/off
+- Sleep, Turbo, Eco (capacity 110%–40%), indoor display on/off, self clean, buzzer on/off
+- Timer: turn off in 30 min–8 h, turn off at a time, or turn on at a time (once or every day).
+  The phone sends the command at that time, even with the app closed, and shows a notification
 - Shows online/offline, room temperature and AC fault codes (refreshes every 10 s while open)
 - Several ACs on one account: pick one from the title bar
 

@@ -57,6 +57,18 @@ object AcIcons {
 
     val WifiOff = lineIcon("wifi_off", "M5.5,12.5 A9.5,9.5 0 0,1 18.5,12.5 M8.7,16 A4.8,4.8 0 0,1 15.3,16 M12,19.6 L12,19.7 M3,3 L21,21", 2.2f)
 
+    val HSwing = lineIcon(
+        "hswing",
+        "M3,12 L21,12 M6,9 L3,12 L6,15 M18,9 L21,12 L18,15 M8,6.5 C10,5 14,5 16,6.5 M8,17.5 C10,19 14,19 16,17.5",
+    )
+    val Moon = lineIcon("sleep", "M20,14.5 A8.5,8.5 0 1,1 9.5,4 A7,7 0 0,0 20,14.5 Z")
+    val Timer = lineIcon("timer", "M12,21 A8,8 0 1,0 12,5 A8,8 0 1,0 12,21 Z M12,9 L12,13 L14.5,15 M10,2.5 L14,2.5")
+    val Bolt = lineIcon("turbo", "M13,2 L5,13.5 L11,13.5 L10,22 L18.5,10 L12.5,10 Z")
+    val Leaf = lineIcon("eco", "M5,19 C5,10 11,4 20,4 C20,13 14,19 5,19 Z M5,19 L13,11")
+    val Display = lineIcon("display", "M3,5 L21,5 L21,16 L3,16 Z M8,20 L16,20 M7,10.5 L10,10.5 M12,10.5 L17,10.5")
+    val Clean = lineIcon("clean", "M12,3 L13.8,9.2 L20,11 L13.8,12.8 L12,19 L10.2,12.8 L4,11 L10.2,9.2 Z M19,16 L19,21 M16.5,18.5 L21.5,18.5")
+    val Bell = lineIcon("buzzer", "M6,16 L6,11 A6,6 0 0,1 18,11 L18,16 L20,18 L4,18 Z M10,21 L14,21")
+
     val Up = lineIcon("up", "M6,15 L12,9 L18,15", 2.6f)
     val Down = lineIcon("down", "M6,9 L12,15 L18,9", 2.6f)
 

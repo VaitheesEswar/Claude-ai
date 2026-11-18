@@ -117,3 +117,36 @@ class RedactTest {
         )
     }
 }
+
+class ExtraFeaturesTest {
+    @Test
+    fun parsesExtraFields() {
+        val s = AcState.fromReported(
+            mapOf("hswing" to 0, "sleep" to 1, "turbo" to 3, "eco" to mapOf("value" to 2), "display" to 0, "s_clean" to 1, "m_buz" to 0),
+            connected = true,
+        )
+        assertTrue(s.hSwing); assertTrue(s.sleep); assertTrue(s.turbo)
+        assertEquals(EcoLevel.P80, s.eco)
+        assertFalse(s.display); assertTrue(s.selfClean); assertFalse(s.buzzer)
+    }
+
+    @Test
+    fun extraDefaultsWhenMissing() {
+        val s = AcState.fromReported(mapOf("hswing" to 6, "eco" to 0), connected = true)
+        assertFalse(s.hSwing); assertFalse(s.sleep); assertEquals(EcoLevel.OFF, s.eco)
+        assertTrue(s.display); assertTrue(s.buzzer)
+    }
+
+    @Test
+    fun extraCommands() {
+        val st = AcState(fan = FanSpeed.MEDIUM)
+        assertEquals(mapOf("hswing" to 0, "lcmd" to "hswing"), AcCommands.setHSwing(st, true).desired)
+        assertEquals(mapOf("hswing" to 6, "lcmd" to "hswing"), AcCommands.setHSwing(st, false).desired)
+        assertEquals(mapOf("sleep" to 1, "lcmd" to "sleep"), AcCommands.setSleep(st, true).desired)
+        assertEquals(mapOf("turbo" to 3, "lcmd" to "turbo"), AcCommands.setTurbo(st, true).desired)
+        assertEquals(mapOf("eco" to mapOf("value" to 5, "fspd" to 3), "lcmd" to "eco"), AcCommands.setEco(st, EcoLevel.P110).desired)
+        assertEquals(mapOf("display" to 0, "lcmd" to "display"), AcCommands.setDisplay(st, false).desired)
+        assertEquals(mapOf("s_clean" to 1, "lcmd" to "s_clean"), AcCommands.setSelfClean(st, true).desired)
+        assertEquals(mapOf("m_buz" to 0, "lcmd" to "m_buz"), AcCommands.setBuzzer(st, false).desired)
+    }
+}

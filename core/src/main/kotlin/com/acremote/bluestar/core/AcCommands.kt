@@ -40,6 +40,33 @@ object AcCommands {
     fun setSwing(s: AcState, swing: Swing) =
         Command(mapOf("vswing" to swing.code, "lcmd" to "vswing"), s.copy(swing = swing))
 
+    /** Horizontal (left-right) louver: 0 = moving, 6 = fixed. */
+    fun setHSwing(s: AcState, on: Boolean) =
+        Command(mapOf("hswing" to if (on) 0 else 6, "lcmd" to "hswing"), s.copy(hSwing = on))
+
+    fun setSleep(s: AcState, on: Boolean) =
+        Command(mapOf("sleep" to if (on) 1 else 0, "lcmd" to "sleep"), s.copy(sleep = on))
+
+    /** The firmware uses 3 for "turbo on". */
+    fun setTurbo(s: AcState, on: Boolean) =
+        Command(mapOf("turbo" to if (on) 3 else 0, "lcmd" to "turbo"), s.copy(turbo = on))
+
+    /** Eco carries the current fan speed with it, as the official app sends it. */
+    fun setEco(s: AcState, level: EcoLevel) =
+        Command(
+            mapOf("eco" to mapOf("value" to level.code, "fspd" to s.fan.code), "lcmd" to "eco"),
+            s.copy(eco = level),
+        )
+
+    fun setDisplay(s: AcState, on: Boolean) =
+        Command(mapOf("display" to if (on) 1 else 0, "lcmd" to "display"), s.copy(display = on))
+
+    fun setSelfClean(s: AcState, on: Boolean) =
+        Command(mapOf("s_clean" to if (on) 1 else 0, "lcmd" to "s_clean"), s.copy(selfClean = on))
+
+    fun setBuzzer(s: AcState, on: Boolean) =
+        Command(mapOf("m_buz" to if (on) 1 else 0, "lcmd" to "m_buz"), s.copy(buzzer = on))
+
     /** Dry runs at low fan and Auto at auto fan; the firmware rejects anything else. */
     fun forcedFan(mode: AcMode): FanSpeed? = when (mode) {
         AcMode.DRY -> FanSpeed.LOW

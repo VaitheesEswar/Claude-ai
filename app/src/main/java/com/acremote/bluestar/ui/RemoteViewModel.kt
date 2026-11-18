@@ -7,7 +7,13 @@ import com.acremote.bluestar.core.AcCommands
 import com.acremote.bluestar.core.AcDevice
 import com.acremote.bluestar.core.AcMode
 import com.acremote.bluestar.core.AcState
+import com.acremote.bluestar.core.AcTimer
+import com.acremote.bluestar.core.EcoLevel
 import com.acremote.bluestar.core.FanSpeed
+import com.acremote.bluestar.core.TimerAction
+import com.acremote.bluestar.core.TimerMath
+import com.acremote.bluestar.data.TimerScheduler
+import java.time.ZonedDateTime
 import com.acremote.bluestar.core.Redact
 import com.acremote.bluestar.core.Swing
 import com.acremote.bluestar.data.ApiException
@@ -59,6 +65,11 @@ sealed interface UiState {
 class RemoteViewModel(app: Application) : AndroidViewModel(app) {
     private val client = BlueStarClient()
     private val store = CredentialStore(app)
+    private val scheduler = TimerScheduler(app)
+
+    private val _timers = MutableStateFlow(scheduler.all())
+    /** All pending timers (every AC); the UI filters by the selected AC. */
+    val timers: StateFlow<List<AcTimer>> = _timers
 
     private var login: SavedLogin? = null
     private var session: Session? = null
@@ -116,6 +127,9 @@ class RemoteViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun signOut() {
+        // Timers need the saved login to run, so they go too.
+        scheduler.cancelAll()
+        _timers.value = emptyList()
         refreshJob?.cancel()
         tempJob?.cancel()
         store.clearPassword()
@@ -135,6 +149,7 @@ class RemoteViewModel(app: Application) : AndroidViewModel(app) {
     /** [manual] shows a spinner and reports errors; polling refreshes are quiet. */
     fun refresh(manual: Boolean) {
         if (_state.value !is UiState.Ready || refreshJob?.isActive == true) return
+        _timers.value = scheduler.all() // daily timers move forward after they fire
         refreshJob = viewModelScope.launch {
             if (manual) updateReady { it.copy(refreshing = true) }
             try {
@@ -163,6 +178,46 @@ class RemoteViewModel(app: Application) : AndroidViewModel(app) {
     fun setMode(mode: AcMode) = send { AcCommands.setMode(it, mode) }
     fun setFan(fan: FanSpeed) = send { AcCommands.setFan(it, fan) }
     fun setSwing(swing: Swing) = send { AcCommands.setSwing(it, swing) }
+    fun toggleHSwing() = send { AcCommands.setHSwing(it, !it.hSwing) }
+    fun toggleSleep() = send { AcCommands.setSleep(it, !it.sleep) }
+    fun toggleTurbo() = send { AcCommands.setTurbo(it, !it.turbo) }
+    fun setEco(level: EcoLevel) = send { AcCommands.setEco(it, level) }
+    fun toggleDisplay() = send { AcCommands.setDisplay(it, !it.display) }
+    fun toggleSelfClean() = send { AcCommands.setSelfClean(it, !it.selfClean) }
+    fun toggleBuzzer() = send { AcCommands.setBuzzer(it, !it.buzzer) }
+
+    // ---- Timers -------------------------------------------------------------
+
+    /** Turn the selected AC off after [minutes]. */
+    fun addOffTimerIn(minutes: Int) {
+        val device = readyState()?.selected ?: return
+        val at = System.currentTimeMillis() + minutes * 60_000L
+        addTimer(AcTimer(newTimerId(), device.id, TimerAction.OFF, at))
+        _messages.trySend("${device.name} will turn off in ${TimerMath.formatRemaining(minutes * 60_000L)}")
+    }
+
+    /** Turn the selected AC on/off at a clock time, once or every day. */
+    fun addTimerAt(action: TimerAction, hour: Int, minute: Int, daily: Boolean) {
+        val device = readyState()?.selected ?: return
+        val minuteOfDay = hour * 60 + minute
+        val at = TimerMath.nextAt(minuteOfDay, ZonedDateTime.now()).toInstant().toEpochMilli()
+        addTimer(AcTimer(newTimerId(), device.id, action, at, if (daily) minuteOfDay else null))
+        val verb = if (action == TimerAction.OFF) "off" else "on"
+        val time = String.format(java.util.Locale.getDefault(), "%02d:%02d", hour, minute)
+        _messages.trySend("${device.name} will turn $verb at $time${if (daily) " every day" else ""}")
+    }
+
+    fun cancelTimer(id: Long) {
+        scheduler.cancel(id)
+        _timers.value = scheduler.all()
+    }
+
+    private fun addTimer(t: AcTimer) {
+        scheduler.add(t)
+        _timers.value = scheduler.all()
+    }
+
+    private fun newTimerId(): Long = System.currentTimeMillis()
 
     /** Updates the display at once but waits for taps to settle before sending. */
     fun changeTemperature(delta: Int) {

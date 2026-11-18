@@ -41,6 +41,20 @@ enum class Swing(val code: Int, val label: String) {
     }
 }
 
+/** Eco / convertible capacity levels (code -> label), in the order the ECO key steps through. */
+enum class EcoLevel(val code: Int, val label: String) {
+    OFF(0, "Off"),
+    P110(5, "110%"),
+    P100(1, "100%"),
+    P80(2, "80%"),
+    P60(3, "60%"),
+    P40(4, "40%");
+
+    companion object {
+        fun fromCode(code: Int?): EcoLevel? = entries.firstOrNull { it.code == code }
+    }
+}
+
 data class AcState(
     val connected: Boolean = true,
     val power: Boolean = false,
@@ -50,6 +64,13 @@ data class AcState(
     val fan: FanSpeed = FanSpeed.AUTO,
     val swing: Swing = Swing.OFF,
     val errorCode: Int = 0,
+    val hSwing: Boolean = false,
+    val sleep: Boolean = false,
+    val turbo: Boolean = false,
+    val eco: EcoLevel = EcoLevel.OFF,
+    val display: Boolean = true,
+    val selfClean: Boolean = false,
+    val buzzer: Boolean = true,
 ) {
     companion object {
         /**
@@ -57,7 +78,7 @@ data class AcState(
          * values from [previous], so partial updates merge cleanly.
          */
         fun fromReported(reported: Map<String, Any?>, connected: Boolean, previous: AcState = AcState()): AcState {
-            val modeRaw = reported["mode"].let { if (it is Map<*, *>) it["value"] else it }
+            val modeRaw = reported["mode"].unwrapValue()
             return AcState(
                 connected = connected,
                 power = reported["pow"].asInt()?.let { it != 0 } ?: previous.power,
@@ -67,8 +88,19 @@ data class AcState(
                 fan = FanSpeed.fromCode(reported["fspd"].asInt()) ?: previous.fan,
                 swing = Swing.fromCode(reported["vswing"].asInt()) ?: previous.swing,
                 errorCode = reported["err"].asInt() ?: previous.errorCode,
+                // Horizontal swing: 0 = moving, 6 = fixed.
+                hSwing = reported["hswing"].asInt()?.let { it == 0 } ?: previous.hSwing,
+                sleep = reported["sleep"].asInt()?.let { it != 0 } ?: previous.sleep,
+                turbo = reported["turbo"].asInt()?.let { it != 0 } ?: previous.turbo,
+                eco = EcoLevel.fromCode(reported["eco"].unwrapValue().asInt()) ?: previous.eco,
+                display = reported["display"].asInt()?.let { it == 1 } ?: previous.display,
+                selfClean = reported["s_clean"].asInt()?.let { it != 0 } ?: previous.selfClean,
+                buzzer = reported["m_buz"].asInt()?.let { it == 1 } ?: previous.buzzer,
             )
         }
+
+        /** Some fields arrive as {"value": n, ...}. */
+        private fun Any?.unwrapValue(): Any? = if (this is Map<*, *>) this["value"] else this
 
         private fun Any?.asDouble(): Double? = when (this) {
             is Number -> toDouble()

@@ -14,6 +14,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,12 +75,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.acremote.bluestar.core.AcCommands
 import com.acremote.bluestar.core.AcDevice
 import com.acremote.bluestar.core.AcErrors
 import com.acremote.bluestar.core.AcMode
 import com.acremote.bluestar.core.AcState
+import com.acremote.bluestar.core.AcTimer
+import com.acremote.bluestar.core.EcoLevel
+import com.acremote.bluestar.core.TimerAction
+import com.acremote.bluestar.core.TimerMath
 import com.acremote.bluestar.core.FanSpeed
 import com.acremote.bluestar.core.Swing
 import kotlinx.coroutines.delay
@@ -157,7 +165,8 @@ fun RemoteScreen(state: UiState.Ready, vm: RemoteViewModel) {
             if (device == null) {
                 NoDevices(Modifier.padding(padding))
             } else {
-                RemoteBody(state, device, accent, vm, Modifier.padding(padding))
+                val allTimers by vm.timers.collectAsStateWithLifecycle()
+                RemoteBody(state, device, accent, allTimers.filter { it.deviceId == device.id }, vm, Modifier.padding(padding))
             }
         }
     }
@@ -203,10 +212,27 @@ private fun NoDevices(modifier: Modifier) {
 
 /** The handset: an LCD panel on top and a grid of round buttons, like a real AC remote. */
 @Composable
-private fun RemoteBody(state: UiState.Ready, device: AcDevice, accent: Color, vm: RemoteViewModel, modifier: Modifier) {
+private fun RemoteBody(
+    state: UiState.Ready,
+    device: AcDevice,
+    accent: Color,
+    timers: List<AcTimer>,
+    vm: RemoteViewModel,
+    modifier: Modifier,
+) {
     val ac = device.state
     val on = ac.power
     val fanFixed = AcCommands.forcedFan(ac.mode) != null
+    var showTimer by remember { mutableStateOf(false) }
+    if (showTimer) {
+        TimerDialog(
+            timers = timers,
+            onOffIn = vm::addOffTimerIn,
+            onAt = vm::addTimerAt,
+            onCancel = vm::cancelTimer,
+            onDismiss = { showTimer = false },
+        )
+    }
 
     Column(
         modifier
@@ -234,7 +260,7 @@ private fun RemoteBody(state: UiState.Ready, device: AcDevice, accent: Color, vm
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                LcdPanel(ac, accent)
+                LcdPanel(ac, accent, timers.firstOrNull())
 
                 // Row 1: MODE · POWER · FAN
                 Row(
@@ -260,7 +286,7 @@ private fun RemoteBody(state: UiState.Ready, device: AcDevice, accent: Color, vm
                     RemoteKey(AcIcons.Down, "TEMP −", accent, enabled = on && ac.targetTemp > AcCommands.MIN_TEMP) {
                         vm.changeTemperature(-1)
                     }
-                    RemoteKey(AcIcons.Swing, "SWING", accent, enabled = on) {
+                    RemoteKey(AcIcons.Swing, "V-SWING", accent, enabled = on, active = on && ac.swing != Swing.OFF) {
                         vm.setSwing(ac.swing.next())
                     }
                     RemoteKey(AcIcons.Up, "TEMP +", accent, enabled = on && ac.targetTemp < AcCommands.MAX_TEMP) {
@@ -268,11 +294,47 @@ private fun RemoteBody(state: UiState.Ready, device: AcDevice, accent: Color, vm
                     }
                 }
 
+                // Row 3: H-SWING · SLEEP · TIMER
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    RemoteKey(AcIcons.HSwing, "H-SWING", accent, enabled = on, active = on && ac.hSwing) {
+                        vm.toggleHSwing()
+                    }
+                    RemoteKey(AcIcons.Moon, "SLEEP", accent, enabled = on, active = on && ac.sleep) {
+                        vm.toggleSleep()
+                    }
+                    RemoteKey(AcIcons.Timer, "TIMER", accent, enabled = true, active = timers.isNotEmpty()) {
+                        showTimer = true
+                    }
+                }
+
+                // Row 4: TURBO · ECO · DISPLAY
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    RemoteKey(AcIcons.Bolt, "TURBO", accent, enabled = on, active = on && ac.turbo) {
+                        vm.toggleTurbo()
+                    }
+                    RemoteKey(AcIcons.Leaf, if (ac.eco == EcoLevel.OFF) "ECO" else "ECO ${ac.eco.label}", accent, enabled = on, active = on && ac.eco != EcoLevel.OFF) {
+                        vm.setEco(ac.eco.next())
+                    }
+                    RemoteKey(AcIcons.Display, "DISPLAY", accent, enabled = true, active = ac.display) {
+                        vm.toggleDisplay()
+                    }
+                }
+
+                // Row 5: CLEAN · BUZZER
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    RemoteKey(AcIcons.Clean, "CLEAN", accent, enabled = true, active = ac.selfClean) {
+                        vm.toggleSelfClean()
+                    }
+                    RemoteKey(AcIcons.Bell, "BUZZER", accent, enabled = true, active = ac.buzzer) {
+                        vm.toggleBuzzer()
+                    }
+                }
+
                 Text(
                     when {
                         !on -> "Press the power button to switch on"
                         fanFixed -> "Fan speed is automatic in ${ac.mode.label} mode"
-                        else -> "MODE, FAN and SWING step to the next setting on each press"
+                        else -> "MODE, FAN, V-SWING and ECO step to the next setting on each press"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -291,9 +353,10 @@ private fun RemoteBody(state: UiState.Ready, device: AcDevice, accent: Color, vm
     }
 }
 
-/** LCD-style display: mode, Wi-Fi, big set temperature, fan level, swing and room temperature. */
+/** LCD-style display: mode, Wi-Fi, big set temperature, fan level, swing, room temperature and badges. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LcdPanel(ac: AcState, accent: Color) {
+private fun LcdPanel(ac: AcState, accent: Color, nextTimer: AcTimer?) {
     val lcdText = Color(0xFFE8F4FF)
     val dim = lcdText.copy(alpha = 0.6f)
     Column(
@@ -358,6 +421,42 @@ private fun LcdPanel(ac: AcState, accent: Color) {
                 Text("ROOM ${formatDegrees(it)}", color = dim, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
             }
         }
+
+        // Status badges for the extra features.
+        val now by produceState(System.currentTimeMillis()) {
+            while (true) {
+                delay(30_000)
+                value = System.currentTimeMillis()
+            }
+        }
+        val badges = buildList<Pair<ImageVector, String>> {
+            if (ac.power && ac.sleep) add(AcIcons.Moon to "SLEEP")
+            if (ac.power && ac.turbo) add(AcIcons.Bolt to "TURBO")
+            if (ac.power && ac.eco != EcoLevel.OFF) add(AcIcons.Leaf to "ECO ${ac.eco.label}")
+            if (ac.power && ac.hSwing) add(AcIcons.HSwing to "H-SWING")
+            if (ac.selfClean) add(AcIcons.Clean to "CLEAN")
+            nextTimer?.let { t ->
+                val verb = if (t.action == TimerAction.OFF) "OFF" else "ON"
+                add(AcIcons.Timer to "$verb ${TimerMath.formatRemaining(t.triggerAtMillis - now)}")
+            }
+        }
+        if (badges.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                badges.forEach { (icon, text) ->
+                    Row(
+                        Modifier
+                            .border(1.dp, lcdText.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(icon, contentDescription = null, tint = lcdText, modifier = Modifier.size(12.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(text, color = lcdText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -401,6 +500,7 @@ private fun RemoteKey(
     label: String,
     accent: Color,
     enabled: Boolean,
+    active: Boolean = false,
     size: Dp = 68.dp,
     onClick: () -> Unit,
 ) {
@@ -413,7 +513,7 @@ private fun RemoteKey(
             },
             enabled = enabled,
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            color = if (active && enabled) accent else MaterialTheme.colorScheme.surfaceContainerHighest,
             shadowElevation = if (enabled) 3.dp else 0.dp,
             modifier = Modifier.size(size).semantics { contentDescription = label },
         ) {
@@ -421,7 +521,11 @@ private fun RemoteKey(
                 Icon(
                     icon,
                     contentDescription = null,
-                    tint = if (enabled) accent else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                    tint = when {
+                        !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        active -> Color.White
+                        else -> accent
+                    },
                     modifier = Modifier.size(28.dp),
                 )
             }
@@ -429,6 +533,7 @@ private fun RemoteKey(
         Spacer(Modifier.height(6.dp))
         Text(
             label,
+            maxLines = 1,
             style = MaterialTheme.typography.labelSmall,
             letterSpacing = 1.sp,
             color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline,
@@ -486,6 +591,7 @@ private fun Banner(text: String) {
 
 private fun AcMode.next(): AcMode = AcMode.entries[(ordinal + 1) % AcMode.entries.size]
 private fun FanSpeed.next(): FanSpeed = FanSpeed.entries[(ordinal + 1) % FanSpeed.entries.size]
+private fun EcoLevel.next(): EcoLevel = EcoLevel.entries[(ordinal + 1) % EcoLevel.entries.size]
 private fun Swing.next(): Swing = Swing.entries[(ordinal + 1) % Swing.entries.size]
 
 private fun swingText(s: Swing): String = when (s) {
